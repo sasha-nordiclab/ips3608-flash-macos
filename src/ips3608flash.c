@@ -2,19 +2,18 @@
  * ips3608flash — write FNIRSI IPS3608 firmware to the bootloader disk on macOS.
  * No dependencies (no Python, no mtools).
  *
- *   ips3608flash [--dry-run] /dev/rdiskN APP_IPS3608_Vx.y_YYMMDD.bin
- *   ips3608flash --image disk.img APP_IPS3608_....bin     (test on an image file)
+ *   sudo ips3608flash APP_IPS3608_Vx.y_YYMMDD.bin            finds the device itself
+ *   sudo ips3608flash --dry-run APP_IPS3608_....bin           check only
+ *   ips3608flash --image disk.img APP_IPS3608_....bin         test on an image file
  *
- * Steps: read the whole FAT12 disk into memory, add the firmware file to a copy
- * (long file name + 8.3 entry, cluster chain in every FAT), write back only the
- * 2048-byte sectors that changed, then read the device back and compare.
+ * Steps: find the single "Msc iap" disk, check 2048-byte blocks / 8386560 bytes,
+ * read the whole FAT12 disk into memory, add the firmware file to a copy (long
+ * file name + 8.3 entry, cluster chain in every FAT; same result as mtools'
+ * mcopy), write back only the 2048-byte sectors that changed, then read the
+ * device back and compare.
  *
- * Output (last line) and exit codes:
- *   RESULT: VERIFIED      exit 0  -> press RUN/STOP
- *   RESULT: AUTOFLASH     exit 0  -> device left USB after write (flashing itself)
- *   RESULT: DRYRUN        exit 0
- *   ERROR: ...            exit 1  -> nothing written
- *   ERROR: ... DO NOT PRESS RUN/STOP  exit 2 -> write/verify problem
+ * Exit codes: 0 done, 1 error before writing (nothing written),
+ *             2 write/verify problem (do not press RUN/STOP).
  */
 #include <ctype.h>
 #include <errno.h>
@@ -196,19 +195,51 @@ static uint8_t *read_all(const char *path, uint32_t size) {
     return buf;
 }
 
-int main(int argc, char **argv) {
-    int dry = 0, image = 0, ai = 1;
-    for (; ai < argc && argv[ai][0] == '-' && argv[ai][1] == '-'; ai++) {
-        if (!strcmp(argv[ai], "--dry-run")) dry = 1;
-        else if (!strcmp(argv[ai], "--image")) image = 1;
-        else die(1, "unknown option %s", argv[ai]);
+/* Find the single disk whose media name is "Msc iap"; returns "diskN". */
+static void find_disk(char *out, size_t outsz) {
+    FILE *p = popen("diskutil list external physical", "r");
+    if (!p) die(1, "cannot run diskutil.");
+    char line[512], disks[16][32]; int n = 0, hits = 0;
+    while (fgets(line, sizeof line, p) && n < 16)
+        if (!strncmp(line, "/dev/disk", 9)) sscanf(line + 5, "%31[a-z0-9]", disks[n++]);
+    pclose(p);
+    for (int i = 0; i < n; i++) {
+        char cmd[128]; snprintf(cmd, sizeof cmd, "diskutil info %s", disks[i]);
+        FILE *q = popen(cmd, "r");
+        if (!q) continue;
+        int match = 0;
+        while (fgets(line, sizeof line, q))
+            if (strstr(line, "Media Name:") && strstr(line, "Msc iap")) match = 1;
+        pclose(q);
+        if (match) { if (!hits++) snprintf(out, outsz, "%s", disks[i]); }
     }
-    if (argc - ai != 2) {
-        fprintf(stderr, "usage: %s [--dry-run] /dev/rdiskN APP_IPS3608_*.bin\n"
-                        "       %s --image disk.img APP_IPS3608_*.bin\n", argv[0], argv[0]);
+    if (hits > 1) die(1, "more than one IPS3608 in upgrade mode is connected; leave only one.");
+    if (!hits)
+        die(1, "IPS3608 not found.\n"
+               "  1. Turn the power supply off.\n"
+               "  2. Hold the UPPER button and turn the power on (Firmware Upgrade screen).\n"
+               "  3. Connect the REAR USB port with the cable FROM THE BOX.");
+}
+
+int main(int argc, char **argv) {
+    int dry = 0, image = 0, yes = 0;
+    const char *pos[2]; int npos = 0;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--dry-run")) dry = 1;
+        else if (!strcmp(argv[i], "--image")) image = 1;
+        else if (!strcmp(argv[i], "--yes") || !strcmp(argv[i], "-y")) yes = 1;
+        else if (argv[i][0] == '-') die(1, "unknown option %s", argv[i]);
+        else if (npos < 2) pos[npos++] = argv[i];
+        else npos = 3;
+    }
+    if (npos < 1 || npos > 2 || (image && npos != 2)) {
+        fprintf(stderr, "usage: sudo %s APP_IPS3608_*.bin              (finds the IPS3608 itself)\n"
+                        "       sudo %s --dry-run APP_IPS3608_*.bin    (check only, write nothing)\n"
+                        "       %s --image disk.img APP_IPS3608_*.bin  (test on an image)\n",
+                argv[0], argv[0], argv[0]);
         return 1;
     }
-    const char *dev = argv[ai], *fwpath = argv[ai + 1];
+    const char *fwpath = pos[npos - 1];
     const char *fwname = strrchr(fwpath, '/'); fwname = fwname ? fwname + 1 : fwpath;
     size_t fl = strlen(fwname);
     if (strncmp(fwname, "APP_IPS3608_", 12) || fl < 16 || strcasecmp(fwname + fl - 4, ".bin"))
@@ -220,6 +251,17 @@ int main(int argc, char **argv) {
     uint32_t fwlen = (uint32_t)st.st_size;
     uint8_t *fw = read_all(fwpath, fwlen);
     if (!fw) die(1, "cannot read firmware %s: %s", fwpath, strerror(errno));
+
+    char devbuf[64]; const char *dev;
+    if (npos == 2) dev = pos[0];
+    else {
+        if (geteuid() != 0) die(1, "run with sudo:  sudo %s %s", argv[0], fwpath);
+        char disk[32]; find_disk(disk, sizeof disk);
+        snprintf(devbuf, sizeof devbuf, "/dev/r%s", disk); dev = devbuf;
+        printf("Found IPS3608: /dev/%s\n", disk);
+        char cmd[96]; snprintf(cmd, sizeof cmd, "diskutil unmountDisk force /dev/%s >/dev/null", disk);
+        if (system(cmd) != 0) die(1, "cannot unmount /dev/%s.", disk);
+    }
 
     /* device geometry */
     if (!image) {
@@ -249,7 +291,7 @@ int main(int argc, char **argv) {
     for (uint32_t s = 0; s < nsec; s++)
         if (memcmp(before + s * DEV_BLOCK, after + s * DEV_BLOCK, DEV_BLOCK)) ch[nch++] = s;
     printf("Firmware: %s (%u bytes)\nChanged sectors: %u\n", fwname, fwlen, nch);
-    if (!nch) die(1, "nothing to write.");
+    if (!nch) die(1, "this firmware is already on the device. Power-cycle into upgrade mode and retry.");
     if (nch > MAX_CHANGED) die(1, "%u changed sectors exceeds safety limit %u.", nch, MAX_CHANGED);
 
     if (dry) {
@@ -259,7 +301,14 @@ int main(int argc, char **argv) {
             if (o < 0 || write(o, after, DISK_SIZE) != (ssize_t)DISK_SIZE) die(1, "cannot write %s", out);
             close(o); printf("Prepared image: %s\n", out);
         }
-        puts("RESULT: DRYRUN"); return 0;
+        puts("Dry run: nothing written.");
+        return 0;
+    }
+
+    if (!yes && !image) {
+        printf("Flash %s? [y/N] ", fwname); fflush(stdout);
+        char ans[16] = "";
+        if (!fgets(ans, sizeof ans, stdin) || (ans[0] != 'y' && ans[0] != 'Y')) die(1, "cancelled.");
     }
 
     int fd = open(dev, O_RDWR | (image ? 0 : O_SYNC));
@@ -275,10 +324,17 @@ int main(int argc, char **argv) {
     if (!image) sleep(1);
     uint8_t *check = read_all(dev, DISK_SIZE);
     if (!check) {
-        if (access(dev, F_OK) != 0) { puts("RESULT: AUTOFLASH"); return 0; }
+        if (access(dev, F_OK) != 0) {
+            puts("\nDONE. The power supply took the firmware and is updating by itself.\n"
+                 "Wait for it to reboot, then check the version in its settings.\n"
+                 "Do not disconnect USB or power until it reboots.");
+            return 0;
+        }
         die(2, "cannot read the device back. DO NOT PRESS RUN/STOP.");
     }
     if (memcmp(check, after, DISK_SIZE)) die(2, "verification failed. DO NOT PRESS RUN/STOP.");
-    puts("RESULT: VERIFIED");
+    puts("\nDONE. Firmware written and verified.\n"
+         "Now SHORT-PRESS RUN/STOP on the power supply to start the update.\n"
+         "Do not disconnect USB or power until it reboots.");
     return 0;
 }
