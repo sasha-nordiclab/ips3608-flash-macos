@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
     if (st.st_size < 1024 || st.st_size > 4 * 1024 * 1024) die(1, "firmware size %lld looks wrong.", (long long)st.st_size);
     uint32_t fwlen = (uint32_t)st.st_size;
     uint8_t *fw = read_all(fwpath, fwlen);
-    if (!fw) die(1, "cannot read firmware.");
+    if (!fw) die(1, "cannot read firmware %s: %s", fwpath, strerror(errno));
 
     /* device geometry */
     if (!image) {

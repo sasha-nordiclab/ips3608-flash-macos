@@ -55,7 +55,34 @@ on run
 		display dialog "Flash the IPS3608 with" & return & fwName & "?" buttons {"No", "Yes"} default button 2 cancel button 1 with title appTitle
 	end if
 
-	-- 4. Flash (macOS asks for the admin password)
+	-- 4. Copy the firmware out of protected folders (Downloads/Desktop/Documents).
+	-- The app may read the file the user picked, but the root helper may not.
+	set tmpDir to do shell script "mktemp -d -t ips3608"
+	set fwCopy to tmpDir & "/" & fwName
+	try
+		set src to open for access (POSIX file fw)
+		set fwData to read src as data
+		close access src
+		set dst to open for access (POSIX file fwCopy) with write permission
+		set eof dst to 0
+		write fwData to dst
+		close access dst
+		set a to do shell script "stat -f %z " & quoted form of fw
+		set b to do shell script "stat -f %z " & quoted form of fwCopy
+		if a is not b then error "size mismatch " & a & " vs " & b
+	on error errMsg
+		try
+			close access src
+		end try
+		try
+			close access dst
+		end try
+		display dialog "Cannot read firmware file:" & return & errMsg buttons {"OK"} default button 1 with title appTitle with icon stop
+		return
+	end try
+	set fw to fwCopy
+
+	-- 5. Flash (macOS asks for the admin password)
 	set cmd to "diskutil unmountDisk force " & disk & " >/dev/null && " & quoted form of tool & " " & quoted form of ("/dev/r" & text 6 thru -1 of disk) & " " & quoted form of fw & " 2>&1"
 	try
 		set out to do shell script cmd with administrator privileges
@@ -76,7 +103,7 @@ on run
 		return
 	end try
 
-	-- 5. Result
+	-- 6. Result
 	if out contains "RESULT: VERIFIED" then
 		if ru then
 			set msg to "Прошивка записана и проверена." & return & return & "Теперь КОРОТКО нажми RUN/STOP на блоке." & return & "Не отключай USB и питание до перезагрузки."
