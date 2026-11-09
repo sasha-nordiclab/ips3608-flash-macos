@@ -82,13 +82,35 @@ on run
 	end try
 	set fw to fwCopy
 
+	-- Touch the IPS3608 volume from the app itself so macOS asks for
+	-- "Removable Volumes" access; the root helper inherits the app's permission.
+	try
+		do shell script "diskutil mountDisk " & disk & " >/dev/null 2>&1; true"
+		delay 1
+		list folder (POSIX file "/Volumes/IPS3608/") without invisibles
+	end try
+
 	-- 5. Flash (macOS asks for the admin password)
 	set cmd to "diskutil unmountDisk force " & disk & " >/dev/null && " & quoted form of tool & " " & quoted form of ("/dev/r" & text 6 thru -1 of disk) & " " & quoted form of fw & " 2>&1"
 	try
 		set out to do shell script cmd with administrator privileges
 	on error errMsg number errNum
 		if errNum is -128 then return
-		if errMsg contains "nothing to write" then
+		if errMsg contains "Operation not permitted" then
+			do shell script "diskutil mountDisk " & disk & " >/dev/null 2>&1; true"
+			if ru then
+				set msg to "macOS не дала доступ к блоку. На блок ничего не записано." & return & return & "Открой Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску, включи IPS3608 Flasher (или добавь его кнопкой +), затем запусти приложение снова."
+				set b to {"Открыть настройки", "OK"}
+			else
+				set msg to "macOS denied access to the device. Nothing was written." & return & return & "Open System Settings → Privacy & Security → Full Disk Access, turn on IPS3608 Flasher (or add it with +), then run the app again."
+				set b to {"Open Settings", "OK"}
+			end if
+			set r to display dialog msg buttons b default button 2 with title appTitle with icon caution
+			if button returned of r is item 1 of b then
+				do shell script "open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'"
+			end if
+			return
+		else if errMsg contains "nothing to write" then
 			if ru then
 				set msg to "Эта прошивка уже лежит на блоке." & return & return & "Выключи блок, снова войди в режим прошивки и запусти программу ещё раз."
 			else
