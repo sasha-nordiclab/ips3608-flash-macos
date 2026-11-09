@@ -1,92 +1,47 @@
-# ips3608-flash-macos
+# IPS3608 Flasher for macOS
 
-Flash firmware to the **[FNIRSI IPS3608](https://www.fnirsi.com/products/ips3608)** bench power supply (36 V / 8 A / 285 W) from **macOS**.
+A simple Mac app to flash firmware to the **[FNIRSI IPS3608](https://www.fnirsi.com/products/ips3608)** bench power supply (36 V / 8 A / 285 W).
 
-FNIRSI's instructions say to drag the `.bin` onto the USB drive the power supply shows in upgrade mode. On macOS that often does nothing. This tool writes the firmware so the bootloader accepts it.
+**Nothing to install:** no Python, no Homebrew, no Terminal. Works on Apple Silicon and Intel Macs (macOS 11+).
 
 - Device: <https://www.fnirsi.com/products/ips3608>
 - Firmware downloads: <https://www.fnirsi.com/pages/software-downloads>
-- Write-up with background: <https://yakovlev.cc/articles/260818_fnirsi_ips3608_firmware_macos/>
+- Background write-up: <https://yakovlev.cc/articles/260818_fnirsi_ips3608_firmware_macos/>
 
-> ⚠️ **Use the USB cable that came in the box with the IPS3608.** Ordinary USB-C cables often do not work. The power supply then never shows up as a disk, or does not show up at all.
-
-> ⚠️ The tool writes raw sectors to a USB disk. Before writing anything it checks that the target is the IPS3608 bootloader disk. Do not disconnect USB or power during an update.
+> ⚠️ **Use the USB cable that came in the box with the IPS3608.** Ordinary USB-C cables often do not work. The power supply then never shows up on the Mac.
 
 [По-русски ↓](#инструкция-по-русски)
 
 ---
 
-## Step-by-step
+## How to flash
 
-### 1. Install the tools (once)
+1. **Download the app:** get **IPS3608-Flasher-macOS.zip** from [Releases](https://github.com/sasha-nordiclab/ips3608-flash-macos/releases/latest) and unzip it.
+2. **Download the firmware** from the [FNIRSI downloads page](https://www.fnirsi.com/pages/software-downloads) and unzip it. You need the file named like `APP_IPS3608_V1.9_260429.bin`.
+3. **Open IPS3608 Flasher.app.** The app is not notarized by Apple, so the first time **right-click → Open → Open**. If macOS still blocks it, go to System Settings → Privacy & Security → **Open Anyway**.
+4. **Put the power supply into Firmware Upgrade mode.** The app shows these steps too:
+   1. Turn the IPS3608 **off**.
+   2. **Press and hold the upper button** on the front panel.
+   3. While holding it, **turn the power on**. The **Firmware Upgrade** screen appears.
+   4. Connect the **rear USB port** to the Mac with the **cable from the box**.
+5. The app finds the device. **Choose the `.bin` file**, click **Yes**, and enter your Mac password.
+6. **Finish**, as the app tells you:
+   - *"The device started the update by itself"*: wait for it to reboot.
+   - *"Written and verified"*: **short-press RUN/STOP** on the power supply.
 
-Install [Homebrew](https://brew.sh) if you don't have it, then mtools:
+   Do not disconnect USB or power until the device has rebooted. Then check the version in the device's settings.
 
-```sh
-brew install mtools
-```
+**The app keeps waiting for the device?**
+- Use the cable from the box.
+- Check that the screen shows Firmware Upgrade. Press the button **before** turning the power on.
 
-Python 3 must be installed (check with `python3 --version`).
-
-### 2. Get this tool
-
-```sh
-git clone https://github.com/sasha-nordiclab/ips3608-flash-macos.git
-cd ips3608-flash-macos
-```
-
-Or download `ips3608_flash.py` from this page.
-
-### 3. Get the firmware
-
-Download the IPS3608 firmware from the [FNIRSI downloads page](https://www.fnirsi.com/pages/software-downloads) and unzip it. You need the file named like `APP_IPS3608_V1.9_260429.bin`. Firmware is not included in this repo.
-
-### 4. Put the IPS3608 into Firmware Upgrade mode
-
-1. Turn the power supply **off**.
-2. **Press and hold the upper button** on the front panel.
-3. While still holding it, **turn the power on**.
-4. The **Firmware Upgrade** screen appears. You can release the button.
-5. Connect the **rear USB data port** to the Mac with the **original FNIRSI cable from the box**.
-
-### 5. Check that the Mac sees it
-
-A disk named **IPS3608** should appear in Finder (it contains `Ready.TXT`). Or check in Terminal:
-
-```sh
-diskutil list external
-```
-
-You should see an 8.4 MB disk named `IPS3608`.
-
-**No disk?**
-- Make sure you used the cable from the box.
-- Make sure the Firmware Upgrade screen is showing. If the unit is in normal mode, the Mac sees it as `AT32 Virtual Com Port` instead of a disk. Repeat step 4, and press the button **before** turning the power on.
-
-### 6. Flash
-
-```sh
-sudo python3 -I ips3608_flash.py ~/Downloads/APP_IPS3608_V1.9_260429.bin
-```
-
-Enter your Mac password, then answer `y`.
-
-The script finds the disk, checks it, and writes the firmware. To test everything without writing, add `--dry-run`.
-
-### 7. Finish
-
-One of two things happens:
-
-- **The disk disappears right after the write.** This is normal: the power supply picked up the firmware and is flashing itself. Wait until it reboots.
-- **`Verification successful`** is printed. **Short-press RUN/STOP** on the power supply to start the update.
-
-Do not unplug USB or power until the device has rebooted. Then check the firmware version in the device's settings.
-
-If the script prints `ERROR` before writing, nothing was changed. Fix the cause and run it again. If it prints `ERROR` with **"Do NOT press RUN/STOP"**, don't press it. Re-enter Firmware Upgrade mode and flash again.
+**Error?** Do not press RUN/STOP. Turn the unit off, enter upgrade mode again and retry.
 
 ---
 
-## Why Finder copy fails
+## Why not just copy the file in Finder?
+
+FNIRSI's instructions say to drag the `.bin` onto the USB drive. On macOS the file appears, but pressing RUN/STOP does nothing.
 
 In upgrade mode the IPS3608 is a tiny FAT12 disk with a **2048-byte block size**:
 
@@ -94,21 +49,38 @@ In upgrade mode the IPS3608 is a tiny FAT12 disk with a **2048-byte block size**
 |---|---|
 | Media name | `Msc iap` |
 | Volume | `IPS3608` (contains `Ready.TXT`) |
-| File system | MS-DOS FAT12 |
+| File system | MS-DOS FAT12, 8 KB clusters |
 | Disk size | 8 386 560 bytes |
 | Device block size | 2048 bytes |
 | USB name | `AT32 Mass Storage` (Artery AT32 MCU) |
 
-- A Finder copy creates the file, but pressing RUN/STOP does nothing.
-- `mcopy` straight on `/dev/rdiskN` fails with `plain_io read/write: Invalid argument`.
+The app (`src/ips3608flash.c`, plain C, no dependencies):
 
-The script reads the whole disk into an image with `dd` and adds the file to a copy of the image with `mtools`. It then writes back **only the 2048-byte sectors that changed** and reads the device back to verify.
+1. finds exactly one disk with media name `Msc iap`;
+2. checks block size 2048 and disk size 8386560, and refuses to touch anything else;
+3. reads the whole disk into memory;
+4. adds the firmware to a copy (FAT12 long name + 8.3 entry, cluster chain in every FAT), with the same result as `mcopy` from mtools;
+5. writes back **only the 2048-byte sectors that changed** (80 for V1.9), refusing to write more than 512;
+6. reads the device back and compares byte-for-byte. Some units start flashing as soon as the file lands and leave USB; the app reports that as success.
 
-Safety checks before writing:
-- exactly one `Msc iap` disk is connected;
-- volume `IPS3608`, USB, `Size` = 8386560, block size 2048, FAT12;
-- the firmware file name is `APP_IPS3608_*.bin`;
-- at least 1 and at most 512 sectors changed.
+## Command line
+
+The flashing tool works without the app too:
+
+```sh
+diskutil list external                          # find the IPS3608 disk, e.g. disk4
+diskutil unmountDisk force /dev/disk4
+sudo ./ips3608flash /dev/rdisk4 APP_IPS3608_V1.9_260429.bin
+sudo ./ips3608flash --dry-run /dev/rdisk4 APP_IPS3608_V1.9_260429.bin   # check only
+```
+
+## Build
+
+Requires Xcode Command Line Tools (`xcode-select --install`):
+
+```sh
+./app/build.sh      # -> dist/IPS3608 Flasher.app and dist/IPS3608-Flasher-macOS.zip
+```
 
 ## Tested
 
@@ -121,67 +93,28 @@ Safety checks before writing:
 
 ## Инструкция по-русски
 
-Блок питания: [FNIRSI IPS3608](https://www.fnirsi.com/products/ips3608). Прошивки: [страница загрузок FNIRSI](https://www.fnirsi.com/pages/software-downloads).
+Простое приложение для Mac, которое прошивает блок питания **[FNIRSI IPS3608](https://www.fnirsi.com/products/ips3608)**. **Ничего устанавливать не нужно:** ни Python, ни Homebrew, ни Терминал. Работает на Apple Silicon и Intel, macOS 11 и новее.
 
-> ⚠️ **Используй USB-кабель, который был в коробке с IPS3608.** С обычными USB-C кабелями блок часто не определяется как диск или не определяется вообще.
+> ⚠️ **Используй USB-кабель, который был в коробке с IPS3608.** С обычными USB-C кабелями блок часто не определяется.
 
-### 1. Установи инструменты (один раз)
+1. **Скачай приложение:** архив **IPS3608-Flasher-macOS.zip** на странице [Releases](https://github.com/sasha-nordiclab/ips3608-flash-macos/releases/latest). Распакуй его.
+2. **Скачай прошивку** со [страницы загрузок FNIRSI](https://www.fnirsi.com/pages/software-downloads) и распакуй. Нужен файл вида `APP_IPS3608_V1.9_260429.bin`.
+3. **Открой IPS3608 Flasher.app.** Приложение не нотаризовано Apple, поэтому в первый раз: **правый клик → Открыть → Открыть**. Если macOS не пускает, зайди в Системные настройки → Конфиденциальность и безопасность → **Всё равно открыть**.
+4. **Переведи блок в режим прошивки.** Приложение тоже это подскажет:
+   1. **Выключи** блок.
+   2. **Зажми верхнюю кнопку** на передней панели.
+   3. Не отпуская её, **включи питание**. Появится экран **Firmware Upgrade**.
+   4. Подключи **задний USB-порт** к Mac **кабелем из коробки**.
+5. Приложение найдёт блок. **Выбери файл `.bin`**, нажми **Да** и введи пароль от Mac.
+6. **Заверши,** как скажет приложение:
+   - *«Блок сам начал обновление»*: дождись перезагрузки.
+   - *«Записана и проверена»*: **коротко нажми RUN/STOP** на блоке.
 
-Поставь [Homebrew](https://brew.sh), если его нет, затем mtools:
+   Не отключай USB и питание, пока блок не перезагрузится. Потом проверь версию в настройках.
 
-```sh
-brew install mtools
-```
+**Приложение всё ждёт блок?** Возьми кабель из коробки и проверь, что на экране Firmware Upgrade. Кнопку нужно зажать **до** включения питания.
 
-Нужен Python 3 (проверка: `python3 --version`).
-
-### 2. Скачай этот скрипт
-
-```sh
-git clone https://github.com/sasha-nordiclab/ips3608-flash-macos.git
-cd ips3608-flash-macos
-```
-
-### 3. Скачай прошивку
-
-Скачай прошивку IPS3608 со [страницы загрузок FNIRSI](https://www.fnirsi.com/pages/software-downloads) и распакуй архив. Нужен файл вида `APP_IPS3608_V1.9_260429.bin`.
-
-### 4. Переведи блок в режим прошивки
-
-1. **Выключи** блок питания.
-2. **Зажми верхнюю кнопку** на передней панели.
-3. Не отпуская её, **включи питание**.
-4. Появится экран **Firmware Upgrade**. Кнопку можно отпустить.
-5. Подключи **задний USB-порт** к Mac **кабелем из коробки**.
-
-### 5. Проверь, что Mac видит блок
-
-В Finder должен появиться диск **IPS3608** с файлом `Ready.TXT`. Или проверь в Терминале:
-
-```sh
-diskutil list external
-```
-
-**Диска нет?**
-- Проверь, что подключён кабель из коробки.
-- Проверь, что на экране Firmware Upgrade. Если блок в обычном режиме, Mac видит его как `AT32 Virtual Com Port`, а не как диск. Повтори шаг 4: кнопку нужно зажать **до** включения питания.
-
-### 6. Прошей
-
-```sh
-sudo python3 -I ips3608_flash.py ~/Downloads/APP_IPS3608_V1.9_260429.bin
-```
-
-Введи пароль от Mac и ответь `y`. Чтобы проверить всё без записи, добавь `--dry-run`.
-
-### 7. Заверши
-
-- **Если диск пропал сразу после записи**, это нормально: блок сам подхватил прошивку и прошивается. Дождись перезагрузки.
-- **Если появилась строка `Verification successful`**, коротко нажми **RUN/STOP** на блоке.
-
-Не отключай USB и питание, пока блок не перезагрузится. Потом проверь версию прошивки в настройках.
-
-Если появилась ошибка `ERROR` до записи, на блок ничего не записано: исправь причину и запусти снова. Если в ошибке написано **«Do NOT press RUN/STOP»**, не нажимай RUN/STOP. Заново войди в режим прошивки и повтори.
+**Ошибка?** Не нажимай RUN/STOP. Выключи блок, снова войди в режим прошивки и повтори.
 
 ---
 
